@@ -1,0 +1,19 @@
+# Node modules (Dependencies)
+node_modules/
+
+# WhatsApp session data (Isse apka login session git par nahi jayega)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Uploaded files folder
+uploads/
+
+# Environment files aur logs
+.env
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS specific files
+.DS_Store
+Thumbs.db

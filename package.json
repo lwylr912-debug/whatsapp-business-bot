@@ -1,0 +1,36 @@
+{
+  "name": "whatsapp-business-automation",
+  "version": "1.0.0",
+  "description": "WhatsApp Business automation: QR login, bulk messaging from Excel/CSV with anti-ban random delays, and a customizable auto-reply bot.",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "whatsapp-web.js",
+    "automation",
+    "bulk-messaging",
+    "auto-reply",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "csv-parser": "^3.0.0",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.5",
+    "whatsapp-web.js": "^1.23.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
