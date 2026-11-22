@@ -197,6 +197,7 @@ client.on("qr", async (qr) => {
 
 client.on("authenticated", () => {
   state.qr = null;
+
   setStatus("authenticated");
 
   log("success", "Authenticated with WhatsApp.");
@@ -204,6 +205,7 @@ client.on("authenticated", () => {
 
 client.on("auth_failure", (msg) => {
   setStatus("disconnected");
+
   log("error", `Authentication failed: ${msg}`);
 });
 
@@ -233,6 +235,7 @@ client.on("disconnected", (reason) => {
   state.qr = null;
 
   setStatus("disconnected");
+
   log("error", `Disconnected: ${reason}`);
 
   client.initialize().catch((err) => {
@@ -293,13 +296,19 @@ client.on("message", async (message) => {
       return;
     }
 
-    log("info", `Attempting auto-reply to ${from}`);
+    // Send through the original chat object.
+    const chat = await message.getChat();
 
-    const sentMessage = await client.sendMessage(from, reply);
+    if (!chat) {
+      log("error", `Could not get chat for ${from}`);
+      return;
+    }
+
+    const sentMessage = await chat.sendMessage(reply);
 
     log(
       "success",
-      `Send accepted: ID=${sentMessage?.id?._serialized || "unknown"} | ACK=${sentMessage?.ack ?? "pending"} | TO=${from}`
+      `Auto reply accepted: ID=${sentMessage?.id?._serialized || "unknown"} | TO=${from}`
     );
 
   } catch (err) {
@@ -319,8 +328,6 @@ client.on("message_ack", (message, ack) => {
     if (!message || !message.fromMe) return;
 
     const recipient = message.to || "unknown";
-    const messageId =
-      message.id?._serialized || "unknown";
 
     let status = "unknown";
 
@@ -347,7 +354,7 @@ client.on("message_ack", (message, ack) => {
 
     log(
       "info",
-      `DELIVERY ACK=${ack} (${status}) | ID=${messageId} | TO=${recipient}`
+      `DELIVERY ACK=${ack} (${status}) | TO=${recipient}`
     );
 
   } catch (err) {
