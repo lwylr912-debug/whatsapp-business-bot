@@ -1,4 +1,3 @@
-
 "use strict";
 
 /**
@@ -244,7 +243,7 @@ client.on("disconnected", (reason) => {
 });
 
 /* ============================================================
-   6. UNIVERSAL AUTO REPLY
+   6. UNIVERSAL AUTO REPLY - LID SUPPORT
 ============================================================ */
 
 const processedMessages = new Set();
@@ -268,10 +267,7 @@ client.on("message", async (message) => {
       return;
     }
 
-    const messageId =
-      message.id && message.id._serialized
-        ? message.id._serialized
-        : null;
+    const messageId = message.id?._serialized || null;
 
     if (messageId) {
       if (processedMessages.has(messageId)) return;
@@ -296,19 +292,13 @@ client.on("message", async (message) => {
       return;
     }
 
-    // Send through the original chat object.
-    const chat = await message.getChat();
-
-    if (!chat) {
-      log("error", `Could not get chat for ${from}`);
-      return;
-    }
-
-    const sentMessage = await chat.sendMessage(reply);
+    // Send directly to the sender ID.
+    // Do not use message.getChat() because it fails for this LID session.
+    const sentMessage = await client.sendMessage(from, reply);
 
     log(
       "success",
-      `Auto reply accepted: ID=${sentMessage?.id?._serialized || "unknown"} | TO=${from}`
+      `Auto reply submitted: ID=${sentMessage?.id?._serialized || "unknown"} | TO=${from}`
     );
 
   } catch (err) {
@@ -373,9 +363,7 @@ client.initialize().catch((err) => {
     "error",
     `WhatsApp initialization error: ${err.message}`
   );
-});
-
-/* ============================================================
+});/* ============================================================
    9. FILE UPLOAD
 ============================================================ */
 
@@ -714,9 +702,7 @@ app.post("/api/stop", (req, res) => {
   }
 
   res.json({ ok: true });
-});
-
-/* ============================================================
+});/* ============================================================
    16. LOGOUT
 ============================================================ */
 
