@@ -1,17 +1,10 @@
 
-/**
- * WhatsApp Business Automation — Backend
- * Features:
- * 1. QR login + Socket.IO
- * 2. Bulk messaging from XLSX / CSV
- * 3. Optional media attachments
- * 4. Random delay between bulk messages
- * 5. Arabic and English auto-replies
- * 6. Custom fallback reply
- * 7. Persistent auto-reply settings
- */
-
 "use strict";
+
+/**
+ * WhatsApp Business Automation
+ * Universal Auto Reply + Bulk Messaging
+ */
 
 const path = require("path");
 const fs = require("fs");
@@ -26,38 +19,19 @@ const qrcode = require("qrcode");
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 
 /* ============================================================
- * 1. AUTO-REPLY CONFIGURATION
- * ============================================================ */
+   1. AUTO REPLY CONFIGURATION
+============================================================ */
 
-const autoReplyRules = {
-  hi: 'Hello! 👋 Thanks for messaging us.',
-  hello: 'Hi there! 😊 How can we help you today?',
-  menu:
-    '📋 *Main Menu*\n' +
-    '1️⃣ Reply "price" for our price list\n' +
-    '2️⃣ Reply "hours" for opening times\n' +
-    '3️⃣ Reply "support" to talk to a human',
-  price: "💰 Please contact us for pricing information.",
-  hours: "🕒 We are open Mon–Sat, 9:00 AM – 7:00 PM.",
-  support: "🧑‍💻 A team member will get back to you shortly.",
-  thanks: "You are most welcome! 🙌",
-  bye: "Goodbye! 👋 Have a great day.",
-
-  "سلام": "وعليكم السلام ورحمة الله وبركاته ❤️ أهلاً بك!",
-  "مرحبا": "أهلاً وسهلاً بك، كيف يمكنني مساعدتك؟",
-  "السعر": "للاستفسار عن الأسعار، اكتب لنا ما تريد معرفته.",
-  "مساعدة": "نحن هنا لمساعدتك، اكتب استفسارك.",
-  "شكرا": "العفو، سعداء بخدمتك ❤️"
-};
+const autoReplyRules = {};
 
 let defaultReply =
-  "Thanks for reaching out! 🙏 We received your message and will reply soon.";
+  "Thanks for reaching out!";
 
 let autoReplyEnabled = true;
 
 /* ============================================================
- * 2. APP + SERVER + SOCKET.IO
- * ============================================================ */
+   2. APP AND SERVER
+============================================================ */
 
 const app = express();
 const server = http.createServer(app);
@@ -80,9 +54,12 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+app.use(express.json());
+app.use(express.static(PUBLIC_DIR));
+
 /* ============================================================
- * 3. AUTO-REPLY SAVE / LOAD
- * ============================================================ */
+   3. AUTO REPLY SAVE AND LOAD
+============================================================ */
 
 function saveAutoReply() {
   try {
@@ -99,7 +76,7 @@ function saveAutoReply() {
 
     return true;
   } catch (err) {
-    console.error("Could not save auto-reply config:", err.message);
+    console.error("Save error:", err.message);
     return false;
   }
 }
@@ -116,10 +93,7 @@ function loadAutoReply() {
       autoReplyEnabled = saved.enabled;
     }
 
-    if (
-      typeof saved.defaultReply === "string" &&
-      saved.defaultReply.trim()
-    ) {
+    if (typeof saved.defaultReply === "string") {
       defaultReply = saved.defaultReply;
     }
 
@@ -134,25 +108,23 @@ function loadAutoReply() {
 
       for (const [key, value] of Object.entries(saved.rules)) {
         if (typeof value === "string") {
-          autoReplyRules[String(key).toLowerCase()] = value;
+          autoReplyRules[key] = value;
         }
       }
     }
 
-    console.log("Loaded saved auto-reply config.");
+    console.log("Auto-reply settings loaded.");
+
   } catch (err) {
-    console.error("Could not load auto-reply config:", err.message);
+    console.error("Load error:", err.message);
   }
 }
 
 loadAutoReply();
 
-app.use(express.json());
-app.use(express.static(PUBLIC_DIR));
-
 /* ============================================================
- * 4. SHARED CONNECTION STATE
- * ============================================================ */
+   4. CONNECTION STATE
+============================================================ */
 
 const state = {
   status: "initializing",
@@ -182,12 +154,15 @@ function log(level, message) {
   };
 
   io.emit("log", entry);
-  console.log(`[${level.toUpperCase()}] ${message}`);
+
+  console.log(
+    `[${level.toUpperCase()}] ${message}`
+  );
 }
 
 /* ============================================================
- * 5. WHATSAPP CLIENT
- * ============================================================ */
+   5. WHATSAPP CLIENT
+============================================================ */
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -219,9 +194,9 @@ client.on("qr", async (qr) => {
     setStatus("qr");
     io.emit("qr", state.qr);
 
-    log("info", "New QR code generated — scan it to log in.");
+    log("info", "New QR code generated.");
   } catch (err) {
-    log("error", `Failed to render QR code: ${err.message}`);
+    log("error", `QR error: ${err.message}`);
   }
 });
 
@@ -229,11 +204,13 @@ client.on("authenticated", () => {
   state.qr = null;
 
   setStatus("authenticated");
+
   log("success", "Authenticated with WhatsApp.");
 });
 
 client.on("auth_failure", (msg) => {
   setStatus("disconnected");
+
   log("error", `Authentication failed: ${msg}`);
 });
 
@@ -264,98 +241,41 @@ client.on("disconnected", (reason) => {
 
   setStatus("disconnected");
 
-  log(
-    "error",
-    `Client disconnected: ${reason}. Re-initializing…`
-  );
+  log("error", `Disconnected: ${reason}`);
 
   client.initialize().catch((err) => {
-    log("error", `Re-init failed: ${err.message}`);
+    log("error", `Re-init error: ${err.message}`);
   });
 });
 
 /* ============================================================
- * 6. AUTO-REPLY ENGINE — ARABIC + ENGLISH
- * ============================================================ */
+   6. UNIVERSAL AUTO REPLY
+   Replies to every incoming private message.
+============================================================ */
 
-function normalizeText(str) {
-  return String(str || "")
-    .toLowerCase()
-    .replace(/[\u064B-\u065F\u0670]/g, "")
-    .replace(/\u0640/g, "")
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .trim();
-}
-
-function escapeRegExp(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function findAutoReply(text) {
-  const body = normalizeText(text);
-
-  if (!body) {
-    return defaultReply;
-  }
-
-  for (const [keyword, response] of Object.entries(autoReplyRules)) {
-    const key = normalizeText(keyword);
-
-    if (!key || typeof response !== "string") {
-      continue;
-    }
-
-    const isArabic = /[\u0600-\u06FF]/.test(key);
-
-    let matched = false;
-
-    if (isArabic) {
-      matched = body.includes(key);
-    } else {
-      const pattern = new RegExp(
-        `(^|[^a-z0-9])${escapeRegExp(key)}([^a-z0-9]|$)`,
-        "i"
-      );
-
-      matched = pattern.test(body);
-    }
-
-    if (matched) {
-      return response;
-    }
-  }
-
-  return defaultReply;
-}
-
-/* ============================================================
- * 7. INCOMING MESSAGE LISTENER
- * ============================================================ */
+const processedMessages = new Set();
 
 client.on("message", async (message) => {
   try {
     if (!message) return;
 
+    // Ignore messages sent by the bot itself.
     if (message.fromMe) return;
 
+    // Auto reply must be enabled.
     if (!autoReplyEnabled) return;
 
     const from = message.from || "";
 
-    log(
-      "info",
-      `Incoming message received from ${from}`
-    );
-
     if (!from) return;
 
+    // Ignore WhatsApp status.
     if (from === "status@broadcast") return;
 
-    // Ignore group conversations.
+    // Ignore group chats.
     if (from.endsWith("@g.us")) return;
 
-    // Accept individual WhatsApp chat identifiers.
+    // Accept private chats.
     if (
       !from.endsWith("@c.us") &&
       !from.endsWith("@lid")
@@ -363,15 +283,41 @@ client.on("message", async (message) => {
       return;
     }
 
-    const reply = findAutoReply(message.body || "");
+    // Prevent duplicate processing of the same message.
+    const messageId =
+      message.id && message.id._serialized
+        ? message.id._serialized
+        : null;
 
-    if (!reply) return;
+    if (messageId) {
+      if (processedMessages.has(messageId)) return;
+
+      processedMessages.add(messageId);
+
+      if (processedMessages.size > 2000) {
+        const firstId = processedMessages.values().next().value;
+        processedMessages.delete(firstId);
+      }
+    }
+
+    log("info", `Incoming private message from ${from}`);
+
+    // Always use the Fallback Reply.
+    const reply = defaultReply;
+
+    if (
+      typeof reply !== "string" ||
+      !reply.trim()
+    ) {
+      log("error", "Fallback Reply is empty.");
+      return;
+    }
 
     await client.sendMessage(from, reply);
 
     log(
       "success",
-      `Auto-reply sent successfully to ${from}`
+      `Universal auto-reply sent to ${from}`
     );
 
   } catch (err) {
@@ -383,21 +329,21 @@ client.on("message", async (message) => {
 });
 
 /* ============================================================
- * 8. INITIALIZE WHATSAPP
- * ============================================================ */
+   7. INITIALIZE WHATSAPP
+============================================================ */
 
 client.initialize().catch((err) => {
   setStatus("disconnected");
 
   log(
     "error",
-    `Failed to initialize WhatsApp client: ${err.message}`
+    `WhatsApp initialization error: ${err.message}`
   );
 });
 
 /* ============================================================
- * 9. FILE UPLOAD
- * ============================================================ */
+   8. FILE UPLOAD
+============================================================ */
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -463,8 +409,8 @@ function uploadBulkFields(req, res, next) {
 }
 
 /* ============================================================
- * 10. CSV / EXCEL PARSERS
- * ============================================================ */
+   9. CONTACT FILE PARSERS
+============================================================ */
 
 function normalizeRow(row) {
   const out = {};
@@ -516,8 +462,8 @@ async function parseContactsFile(filePath) {
 }
 
 /* ============================================================
- * 11. PHONE NUMBER HANDLING
- * ============================================================ */
+   10. PHONE NUMBERS
+============================================================ */
 
 const PHONE_KEYS = [
   "number",
@@ -529,10 +475,8 @@ const PHONE_KEYS = [
   "phone number"
 ];
 
-// Algeria country code: 213.
-// Change this through the COUNTRY_CODE environment variable if needed.
 const DEFAULT_COUNTRY_CODE =
-  process.env.COUNTRY_CODE || "213";
+  process.env.COUNTRY_CODE || "";
 
 function getPhone(row) {
   for (const key of PHONE_KEYS) {
@@ -616,8 +560,8 @@ async function resolveChatId(raw) {
 }
 
 /* ============================================================
- * 12. BULK MESSAGE HELPERS
- * ============================================================ */
+   11. BULK MESSAGE HELPERS
+============================================================ */
 
 function renderTemplate(template, row) {
   return template.replace(
@@ -649,8 +593,8 @@ function safeUnlink(filePath) {
 }
 
 /* ============================================================
- * 13. API ROUTES
- * ============================================================ */
+   12. API STATUS
+============================================================ */
 
 app.get("/api/status", (req, res) => {
   res.json({
@@ -664,7 +608,9 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-/* ---------------- AUTO-REPLY SETTINGS ---------------- */
+/* ============================================================
+   13. AUTO REPLY SETTINGS
+============================================================ */
 
 app.post("/api/auto-reply", (req, res) => {
   const {
@@ -688,15 +634,12 @@ app.post("/api/auto-reply", (req, res) => {
 
     for (const [key, value] of Object.entries(rules)) {
       if (typeof value === "string") {
-        autoReplyRules[String(key).toLowerCase()] = value;
+        autoReplyRules[key.toLowerCase()] = value;
       }
     }
   }
 
-  if (
-    typeof fallback === "string" &&
-    fallback.trim()
-  ) {
+  if (typeof fallback === "string") {
     defaultReply = fallback;
   }
 
@@ -722,7 +665,9 @@ app.post("/api/auto-reply", (req, res) => {
   });
 });
 
-/* ---------------- STOP BULK SENDING ---------------- */
+/* ============================================================
+   14. STOP BULK JOB
+============================================================ */
 
 app.post("/api/stop", (req, res) => {
   if (bulkJobRunning) {
@@ -730,14 +675,16 @@ app.post("/api/stop", (req, res) => {
 
     log(
       "info",
-      "Stop requested — finishing the current message, then halting."
+      "Stop requested. Finishing current message."
     );
   }
 
   res.json({ ok: true });
 });
 
-/* ---------------- LOGOUT ---------------- */
+/* ============================================================
+   15. LOGOUT
+============================================================ */
 
 app.post("/api/logout", async (req, res) => {
   try {
@@ -747,13 +694,10 @@ app.post("/api/logout", async (req, res) => {
 
     setStatus("disconnected");
 
-    log(
-      "info",
-      "Logged out. Re-initializing for a fresh QR…"
-    );
+    log("info", "Logged out. Re-initializing.");
 
     client.initialize().catch((err) => {
-      log("error", `Re-init failed: ${err.message}`);
+      log("error", `Re-init error: ${err.message}`);
     });
 
     res.json({ ok: true });
@@ -766,7 +710,9 @@ app.post("/api/logout", async (req, res) => {
   }
 });
 
-/* ---------------- BULK SEND ---------------- */
+/* ============================================================
+   16. BULK SEND ROUTE
+============================================================ */
 
 app.post(
   "/api/send-bulk",
@@ -793,7 +739,7 @@ app.post(
 
         return res.status(400).json({
           ok: false,
-          error: "WhatsApp is not connected. Scan the QR code first."
+          error: "WhatsApp is not connected."
         });
       }
 
@@ -811,7 +757,7 @@ app.post(
 
         return res.status(400).json({
           ok: false,
-          error: "Please upload a .xlsx or .csv contacts file."
+          error: "Please upload a contacts file."
         });
       }
 
@@ -822,7 +768,7 @@ app.post(
 
         return res.status(400).json({
           ok: false,
-          error: "Write a message or attach a media file (or both)."
+          error: "Write a message or attach media."
         });
       }
 
@@ -833,10 +779,7 @@ app.post(
         minDelay = 12;
       }
 
-      if (
-        !Number.isFinite(maxDelay) ||
-        maxDelay < minDelay
-      ) {
+      if (!Number.isFinite(maxDelay) || maxDelay < minDelay) {
         maxDelay = Math.max(minDelay, 25);
       }
 
@@ -859,7 +802,7 @@ app.post(
 
         return res.status(400).json({
           ok: false,
-          error: 'No phone column found. Add a column named "number" or "phone".'
+          error: 'No phone column found. Add "number" or "phone".'
         });
       }
 
@@ -890,10 +833,7 @@ app.post(
     } catch (err) {
       cleanup();
 
-      log(
-        "error",
-        `Bulk send failed to start: ${err.message}`
-      );
+      log("error", `Bulk send error: ${err.message}`);
 
       if (!res.headersSent) {
         res.status(500).json({
@@ -906,8 +846,8 @@ app.post(
 );
 
 /* ============================================================
- * 14. BACKGROUND BULK SENDER
- * ============================================================ */
+   17. BACKGROUND BULK SENDER
+============================================================ */
 
 async function runBulkJob(
   rows,
@@ -933,10 +873,7 @@ async function runBulkJob(
       log("info", `Media attached: ${mediaMeta.name}`);
 
     } catch (err) {
-      log(
-        "error",
-        `Could not read media file: ${err.message}. Sending text only.`
-      );
+      log("error", `Media error: ${err.message}`);
     }
   }
 
@@ -949,144 +886,146 @@ async function runBulkJob(
 
   log(
     "info",
-    `Bulk job started: ${total} contacts, delay ${minDelay}-${maxDelay}s.`
+    `Bulk job started: ${total} contacts.`
   );
 
-  for (let i = 0; i < total; i++) {
-    if (stopRequested) {
-      log("info", "Bulk job cancelled by user.");
-      break;
-    }
+  try {
+    for (let i = 0; i < total; i++) {
+      if (stopRequested) {
+        log("info", "Bulk job cancelled.");
+        break;
+      }
 
-    if (state.status !== "connected") {
-      log("error", "Connection lost — stopping bulk job.");
-      break;
-    }
+      if (state.status !== "connected") {
+        log("error", "Connection lost. Stopping bulk job.");
+        break;
+      }
 
-    const row = rows[i];
+      const row = rows[i];
+      const rawPhone = getPhone(row);
 
-    const rawPhone = getPhone(row);
+      const name =
+        row.name ||
+        row["full name"] ||
+        "";
 
-    const name =
-      row.name ||
-      row["full name"] ||
-      "";
+      const resolved = await resolveChatId(rawPhone);
 
-    const resolved = await resolveChatId(rawPhone);
+      if (!resolved.ok) {
+        failed++;
 
-    if (!resolved.ok) {
-      failed++;
+        const shown = resolved.digits || rawPhone || "(blank)";
 
-      const shown =
-        resolved.digits ||
-        rawPhone ||
-        "(blank)";
+        io.emit("bulk:progress", {
+          index: i + 1,
+          total,
+          name,
+          to: shown,
+          status: "failed",
+          reason: resolved.reason,
+          sent,
+          failed
+        });
 
-      io.emit("bulk:progress", {
-        index: i + 1,
-        total,
-        name,
-        to: shown,
-        status: "failed",
-        reason: resolved.reason,
-        sent,
-        failed
-      });
-
-      log(
-        "error",
-        `Skipped ${name || shown} (${shown}): ${resolved.reason}`
-      );
-
-      continue;
-    }
-
-    try {
-      const body = renderTemplate(template, row);
-
-      if (media) {
-        await client.sendMessage(
-          resolved.chatId,
-          media,
-          { caption: body || "" }
+        log(
+          "error",
+          `Skipped ${shown}: ${resolved.reason}`
         );
-      } else {
-        await client.sendMessage(
-          resolved.chatId,
-          body
+
+        continue;
+      }
+
+      try {
+        const body = renderTemplate(template, row);
+
+        if (media) {
+          await client.sendMessage(
+            resolved.chatId,
+            media,
+            { caption: body || "" }
+          );
+        } else {
+          await client.sendMessage(
+            resolved.chatId,
+            body
+          );
+        }
+
+        sent++;
+
+        io.emit("bulk:progress", {
+          index: i + 1,
+          total,
+          name,
+          to: resolved.digits,
+          status: "sent",
+          sent,
+          failed
+        });
+
+        log(
+          "success",
+          `Sent to ${name || resolved.digits}.`
+        );
+
+      } catch (err) {
+        failed++;
+
+        io.emit("bulk:progress", {
+          index: i + 1,
+          total,
+          name,
+          to: resolved.digits,
+          status: "failed",
+          reason: err.message,
+          sent,
+          failed
+        });
+
+        log(
+          "error",
+          `Send failed: ${err.message}`
         );
       }
 
-      sent++;
+      const isLast = i === total - 1;
 
-      io.emit("bulk:progress", {
-        index: i + 1,
-        total,
-        name,
-        to: resolved.digits,
-        status: "sent",
-        sent,
-        failed
-      });
+      if (!isLast && !stopRequested) {
+        const wait = randomInt(minDelay, maxDelay);
 
-      log(
-        "success",
-        `Sent to ${name || resolved.digits} (${resolved.digits})${media ? " with media" : ""}.`
-      );
+        io.emit("bulk:waiting", {
+          index: i + 1,
+          total,
+          seconds: wait
+        });
 
-    } catch (err) {
-      failed++;
-
-      io.emit("bulk:progress", {
-        index: i + 1,
-        total,
-        name,
-        to: resolved.digits,
-        status: "failed",
-        reason: err.message,
-        sent,
-        failed
-      });
-
-      log(
-        "error",
-        `Send failed for ${resolved.digits}: ${err.message}`
-      );
+        await sleep(wait * 1000);
+      }
     }
 
-    const isLast = i === total - 1;
+  } catch (err) {
+    log("error", `Bulk job error: ${err.message}`);
 
-    if (!isLast && !stopRequested) {
-      const wait = randomInt(minDelay, maxDelay);
+  } finally {
+    bulkJobRunning = false;
+    stopRequested = false;
 
-      io.emit("bulk:waiting", {
-        index: i + 1,
-        total,
-        seconds: wait
-      });
+    io.emit("bulk:done", {
+      total,
+      sent,
+      failed
+    });
 
-      await sleep(wait * 1000);
-    }
+    log(
+      "success",
+      `Bulk job finished. Sent: ${sent}, Failed: ${failed}.`
+    );
   }
-
-  bulkJobRunning = false;
-  stopRequested = false;
-
-  io.emit("bulk:done", {
-    total,
-    sent,
-    failed
-  });
-
-  log(
-    "success",
-    `Bulk job finished. Sent: ${sent}, Failed: ${failed}.`
-  );
 }
 
 /* ============================================================
- * 15. SOCKET.IO
- * ============================================================ */
+   18. SOCKET.IO
+============================================================ */
 
 io.on("connection", (socket) => {
   socket.emit("status", {
@@ -1101,21 +1040,21 @@ io.on("connection", (socket) => {
 });
 
 /* ============================================================
- * 16. START SERVER
- * ============================================================ */
+   19. START SERVER
+============================================================ */
 
 server.listen(PORT, () => {
   console.log(
-    `\n WhatsApp Automation dashboard running at http://localhost:${PORT}\n`
+    `WhatsApp Automation dashboard running on port ${PORT}`
   );
 });
 
 /* ============================================================
- * 17. SHUTDOWN
- * ============================================================ */
+   20. SHUTDOWN
+============================================================ */
 
 process.on("SIGINT", async () => {
-  console.log("\nShutting down…");
+  console.log("Shutting down...");
 
   try {
     await client.destroy();
