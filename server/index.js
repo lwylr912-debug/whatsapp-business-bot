@@ -24,9 +24,7 @@ const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 
 const autoReplyRules = {};
 
-let defaultReply =
-  "Thanks for reaching out!";
-
+let defaultReply = "Thanks for reaching out!";
 let autoReplyEnabled = true;
 
 /* ============================================================
@@ -114,7 +112,6 @@ function loadAutoReply() {
     }
 
     console.log("Auto-reply settings loaded.");
-
   } catch (err) {
     console.error("Load error:", err.message);
   }
@@ -155,9 +152,7 @@ function log(level, message) {
 
   io.emit("log", entry);
 
-  console.log(
-    `[${level.toUpperCase()}] ${message}`
-  );
+  console.log(`[${level.toUpperCase()}] ${message}`);
 }
 
 /* ============================================================
@@ -202,7 +197,6 @@ client.on("qr", async (qr) => {
 
 client.on("authenticated", () => {
   state.qr = null;
-
   setStatus("authenticated");
 
   log("success", "Authenticated with WhatsApp.");
@@ -210,7 +204,6 @@ client.on("authenticated", () => {
 
 client.on("auth_failure", (msg) => {
   setStatus("disconnected");
-
   log("error", `Authentication failed: ${msg}`);
 });
 
@@ -240,7 +233,6 @@ client.on("disconnected", (reason) => {
   state.qr = null;
 
   setStatus("disconnected");
-
   log("error", `Disconnected: ${reason}`);
 
   client.initialize().catch((err) => {
@@ -250,7 +242,6 @@ client.on("disconnected", (reason) => {
 
 /* ============================================================
    6. UNIVERSAL AUTO REPLY
-   Replies to every incoming private message.
 ============================================================ */
 
 const processedMessages = new Set();
@@ -258,24 +249,15 @@ const processedMessages = new Set();
 client.on("message", async (message) => {
   try {
     if (!message) return;
-
-    // Ignore messages sent by the bot itself.
     if (message.fromMe) return;
-
-    // Auto reply must be enabled.
     if (!autoReplyEnabled) return;
 
     const from = message.from || "";
 
     if (!from) return;
-
-    // Ignore WhatsApp status.
     if (from === "status@broadcast") return;
-
-    // Ignore group chats.
     if (from.endsWith("@g.us")) return;
 
-    // Accept private chats.
     if (
       !from.endsWith("@c.us") &&
       !from.endsWith("@lid")
@@ -283,7 +265,6 @@ client.on("message", async (message) => {
       return;
     }
 
-    // Prevent duplicate processing of the same message.
     const messageId =
       message.id && message.id._serialized
         ? message.id._serialized
@@ -302,7 +283,6 @@ client.on("message", async (message) => {
 
     log("info", `Incoming private message from ${from}`);
 
-    // Always use the Fallback Reply.
     const reply = defaultReply;
 
     if (
@@ -313,11 +293,13 @@ client.on("message", async (message) => {
       return;
     }
 
-    await client.sendMessage(from, reply);
+    log("info", `Attempting auto-reply to ${from}`);
+
+    const sentMessage = await client.sendMessage(from, reply);
 
     log(
       "success",
-      `Universal auto-reply sent to ${from}`
+      `Send accepted: ID=${sentMessage?.id?._serialized || "unknown"} | ACK=${sentMessage?.ack ?? "pending"} | TO=${from}`
     );
 
   } catch (err) {
@@ -329,7 +311,52 @@ client.on("message", async (message) => {
 });
 
 /* ============================================================
-   7. INITIALIZE WHATSAPP
+   7. MESSAGE DELIVERY ACK DIAGNOSTICS
+============================================================ */
+
+client.on("message_ack", (message, ack) => {
+  try {
+    if (!message || !message.fromMe) return;
+
+    const recipient = message.to || "unknown";
+    const messageId =
+      message.id?._serialized || "unknown";
+
+    let status = "unknown";
+
+    switch (ack) {
+      case -1:
+        status = "error";
+        break;
+      case 0:
+        status = "pending";
+        break;
+      case 1:
+        status = "server received";
+        break;
+      case 2:
+        status = "delivered to device";
+        break;
+      case 3:
+        status = "read";
+        break;
+      case 4:
+        status = "played";
+        break;
+    }
+
+    log(
+      "info",
+      `DELIVERY ACK=${ack} (${status}) | ID=${messageId} | TO=${recipient}`
+    );
+
+  } catch (err) {
+    log("error", `ACK listener error: ${err.message}`);
+  }
+});
+
+/* ============================================================
+   8. INITIALIZE WHATSAPP
 ============================================================ */
 
 client.initialize().catch((err) => {
@@ -342,7 +369,7 @@ client.initialize().catch((err) => {
 });
 
 /* ============================================================
-   8. FILE UPLOAD
+   9. FILE UPLOAD
 ============================================================ */
 
 const storage = multer.diskStorage({
@@ -409,7 +436,7 @@ function uploadBulkFields(req, res, next) {
 }
 
 /* ============================================================
-   9. CONTACT FILE PARSERS
+   10. CONTACT FILE PARSERS
 ============================================================ */
 
 function normalizeRow(row) {
@@ -462,7 +489,7 @@ async function parseContactsFile(filePath) {
 }
 
 /* ============================================================
-   10. PHONE NUMBERS
+   11. PHONE NUMBERS
 ============================================================ */
 
 const PHONE_KEYS = [
@@ -560,7 +587,7 @@ async function resolveChatId(raw) {
 }
 
 /* ============================================================
-   11. BULK MESSAGE HELPERS
+   12. BULK MESSAGE HELPERS
 ============================================================ */
 
 function renderTemplate(template, row) {
@@ -593,7 +620,7 @@ function safeUnlink(filePath) {
 }
 
 /* ============================================================
-   12. API STATUS
+   13. API STATUS
 ============================================================ */
 
 app.get("/api/status", (req, res) => {
@@ -609,7 +636,7 @@ app.get("/api/status", (req, res) => {
 });
 
 /* ============================================================
-   13. AUTO REPLY SETTINGS
+   14. AUTO REPLY SETTINGS
 ============================================================ */
 
 app.post("/api/auto-reply", (req, res) => {
@@ -666,7 +693,7 @@ app.post("/api/auto-reply", (req, res) => {
 });
 
 /* ============================================================
-   14. STOP BULK JOB
+   15. STOP BULK JOB
 ============================================================ */
 
 app.post("/api/stop", (req, res) => {
@@ -683,7 +710,7 @@ app.post("/api/stop", (req, res) => {
 });
 
 /* ============================================================
-   15. LOGOUT
+   16. LOGOUT
 ============================================================ */
 
 app.post("/api/logout", async (req, res) => {
@@ -711,7 +738,7 @@ app.post("/api/logout", async (req, res) => {
 });
 
 /* ============================================================
-   16. BULK SEND ROUTE
+   17. BULK SEND ROUTE
 ============================================================ */
 
 app.post(
@@ -846,7 +873,7 @@ app.post(
 );
 
 /* ============================================================
-   17. BACKGROUND BULK SENDER
+   18. BACKGROUND BULK SENDER
 ============================================================ */
 
 async function runBulkJob(
@@ -1024,7 +1051,7 @@ async function runBulkJob(
 }
 
 /* ============================================================
-   18. SOCKET.IO
+   19. SOCKET.IO
 ============================================================ */
 
 io.on("connection", (socket) => {
@@ -1040,7 +1067,7 @@ io.on("connection", (socket) => {
 });
 
 /* ============================================================
-   19. START SERVER
+   20. START SERVER
 ============================================================ */
 
 server.listen(PORT, () => {
@@ -1050,7 +1077,7 @@ server.listen(PORT, () => {
 });
 
 /* ============================================================
-   20. SHUTDOWN
+   21. SHUTDOWN
 ============================================================ */
 
 process.on("SIGINT", async () => {
